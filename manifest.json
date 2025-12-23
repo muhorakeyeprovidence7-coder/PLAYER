@@ -1,22 +1,25 @@
 {
-  "name": "Offline VLC Player",
-  "short_name": "VLC Mobile",
-  "description": "Offline VLC-style media player with themes",
-  "start_url": "./index.html",
+  "name": "Jackson Media Player",
+  "short_name": "Jackson Player",
+  "description": "Play your media in Jackson Media Player",
+  "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#a463ff",
-  "orientation": "portrait-primary",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
