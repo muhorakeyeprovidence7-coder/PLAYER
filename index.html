@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mobile VLC-Style Player PWA</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Manifest & PWA meta -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#a463ff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<style>
+:root { --primary-color: #a463ff; }
+
+body {
+  margin: 0;
+  background: #000;
+  color: #fff;
+  font-family: Arial, sans-serif;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Menu */
+#menu { background: #111; padding: 8px; display: flex; gap: 10px; }
+#menu button { flex: 1; font-size: 16px; background: none; border: none; color: white; cursor: pointer; }
+#menu button:hover { color: var(--primary-color); }
+
+/* Sidebar & video */
+#sidebar-container { display: flex; flex:1; overflow: hidden; flex-direction: row; }
+#playlist { width: 200px; background:#111; border-right:1px solid #333; overflow-y:auto; flex-shrink:0; }
+#playlist div { padding: 10px; cursor: pointer; border-bottom:1px solid #222; font-size:16px; }
+#playlist div:hover { background:#222; }
+#playlist .active { background: var(--primary-color); color:black; }
+
+#video-container { flex:1; position:relative; display:flex; flex-direction:column; }
+video { width:100%; height:60vh; background:black; max-height:400px; }
+body.audioOnly video { display:none; }
+
+#drop { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); opacity:0.7; font-size:16px; text-align:center; }
+
+/* Controls */
+#controls { background: linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0.2)); padding:8px; display:flex; flex-direction:column; gap:6px; }
+#timeline { width:100%; height:20px; -webkit-appearance:none; background:#222; border-radius:10px; }
+#timeline::-webkit-slider-thumb { -webkit-appearance:none; width:24px; height:24px; background:var(--primary-color); border-radius:50%; cursor:pointer; border:none; }
+
+.controls-row { display:flex; flex-wrap:wrap; justify-content:space-around; align-items:center; gap:6px; }
+button { background:none; border:none; color:white; font-size:24px; cursor:pointer; min-width:44px; min-height:44px; }
+button:hover, button.active, button:active { color: var(--primary-color); }
+input[type="range"] { flex:1; }
+#time { font-size:14px; min-width:80px; text-align:center; }
+
+/* Responsive */
+@media(max-width:768px){
+  #sidebar-container { flex-direction:column; }
+  #playlist { width:100%; height:120px; display:flex; overflow-x:auto; overflow-y:hidden; white-space:nowrap; }
+  #playlist div { display:inline-block; border-bottom:none; border-right:1px solid #222; }
+  video { height:50vh; max-height:none; }
+  .controls-row { flex-wrap:wrap; }
+}
+</style>
+</head>
+<body>
+
+<!-- Menu -->
+<div id="menu">
+  <button id="openFile">File ▾</button>
+  <button id="themeBtn">Theme ▾</button>
+</div>
+
+<!-- Player and Playlist -->
+<div id="sidebar-container">
+  <div id="playlist"></div>
+
+  <div id="video-container">
+    <video id="video"></video>
+    <div id="drop">Drop media or press O</div>
+
+    <div id="controls">
+      <input type="range" id="timeline" min="0" value="0">
+      <div class="controls-row">
+        <button id="back">⏮</button>
+        <button id="play">▶</button>
+        <button id="next">⏭</button>
+        <span id="time">00:00 / 00:00</span>
+
+        <button id="mute">🔊</button>
+        <input type="range" id="volume" min="0" max="1" step="0.01" value="1">
+
+        <button id="repeat">🔁</button>
+        <button id="loop">🔂</button>
+        <button id="shuffle">🔀</button>
+        <button id="audio">🎵</button>
+        <button id="fullscreen">⛶</button>
+      </div>
+    </div>
+
+    <input type="file" id="fileInput" multiple accept="audio/*,video/*">
+  </div>
+</div>
+
+<script>
+// ===== Elements =====
+const video=document.getElementById('video');
+const playlistDiv=document.getElementById('playlist');
+const playBtn=document.getElementById('play');
+const timeline=document.getElementById('timeline');
+const volume=document.getElementById('volume');
+const timeDisplay=document.getElementById('time');
+const fileInput=document.getElementById('fileInput');
+const drop=document.getElementById('drop');
+const backBtn=document.getElementById('back');
+const nextBtn=document.getElementById('next');
+const muteBtn=document.getElementById('mute');
+const repeatBtn=document.getElementById('repeat');
+const loopBtn=document.getElementById('loop');
+const shuffleBtn=document.getElementById('shuffle');
+const audioBtn=document.getElementById('audio');
+const fullscreenBtn=document.getElementById('fullscreen');
+const openFileBtn=document.getElementById('openFile');
+const themeBtn=document.getElementById('themeBtn');
+
+let playlist=[], index=0, repeatOne=false, loopAll=false, shuffle=false;
+
+// ===== Player Controls =====
+playBtn.onclick=()=>video.paused?video.play():video.pause();
+video.onplay=()=>playBtn.textContent='⏸';
+video.onpause=()=>playBtn.textContent='▶';
+video.onloadedmetadata=()=>timeline.max=video.duration;
+video.ontimeupdate=()=>{ timeline.value=video.currentTime; timeDisplay.textContent=fmt(video.currentTime)+' / '+fmt(video.duration); };
+timeline.oninput=()=>video.currentTime=timeline.value;
+volume.oninput=()=>{ video.volume=volume.value; video.muted=false; muteBtn.textContent='🔊'; };
+
+// ===== Playlist =====
+function load(i){ index=i; video.src=URL.createObjectURL(playlist[i]); video.play(); drop.style.display='none'; updatePlaylistUI(); }
+function updatePlaylistUI(){ playlistDiv.innerHTML=''; playlist.forEach((f,i)=>{ const div=document.createElement('div'); div.textContent=f.name; if(i===index) div.classList.add('active'); div.onclick=()=>load(i); playlistDiv.appendChild(div); }); }
+
+// ===== Navigation =====
+function next(){ if(!playlist.length) return; if(shuffle) index=Math.floor(Math.random()*playlist.length); else index++; if(index>=playlist.length){ if(loopAll) index=0; else return;} load(index); }
+function back(){ if(!playlist.length) return; index--; if(index<0) index=0; load(index);}
+nextBtn.onclick=next; backBtn.onclick=back;
+
+// ===== Repeat / Loop / Shuffle =====
+repeatBtn.onclick=()=>{ repeatOne=!repeatOne; loopAll=false; loopBtn.style.color='white'; repeatBtn.style.color=repeatOne?'var(--primary-color)':'white'; }
+loopBtn.onclick=()=>{ loopAll=!loopAll; repeatOne=false; repeatBtn.style.color='white'; loopBtn.style.color=loopAll?'var(--primary-color)':'white'; }
+shuffleBtn.onclick=()=>{ shuffle=!shuffle; shuffleBtn.style.color=shuffle?'var(--primary-color)':'white'; }
+audioBtn.onclick=()=>document.body.classList.toggle('audioOnly');
+muteBtn.onclick=()=>{ video.muted=!video.muted; muteBtn.textContent=video.muted?'🔇':'🔊'; }
+
+// ===== Fullscreen =====
+function toggleFullscreen(){ if(!document.fullscreenElement) video.requestFullscreen?.(); else document.exitFullscreen(); }
+fullscreenBtn.onclick=toggleFullscreen;
+
+// ===== Auto-end =====
+video.onended=()=>{ if(repeatOne){ video.currentTime=0; video.play(); } else next(); }
+
+// ===== File Input / Drag & Drop =====
+fileInput.onchange=()=>{ playlist=[...fileInput.files]; load(0); }
+openFileBtn.onclick=()=>fileInput.click();
+document.body.ondragover=e=>e.preventDefault();
+document.body.ondrop=e=>{ e.preventDefault(); playlist=[...e.dataTransfer.files]; load(0); }
+
+// ===== Theme Switching =====
+const themes=['#a463ff','#ff5c5c','#5cafff','#ffaa00','#00ffaa'];
+let themeIndex=0;
+themeBtn.onclick=()=>{ themeIndex=(themeIndex+1)%themes.length; document.documentElement.style.setProperty('--primary-color',themes[themeIndex]); };
+
+// ===== Keyboard Shortcuts =====
+document.onkeydown=e=>{ if(e.target.tagName==='INPUT') return; switch(e.code){
+  case 'Space': playBtn.click(); break;
+  case 'KeyN': next(); break;
+  case 'KeyB': back(); break;
+  case 'KeyM': muteBtn.click(); break;
+  case 'KeyF': toggleFullscreen(); break;
+  case 'Escape': document.exitFullscreen(); break;
+  case 'KeyR': repeatBtn.click(); break;
+  case 'KeyL': loopBtn.click(); break;
+  case 'KeyS': shuffleBtn.click(); break;
+  case 'KeyO': fileInput.click(); break;
+  case 'KeyT': themeBtn.click(); break;
+} };
+
+// ===== Utils =====
+function fmt(s){ if(isNaN(s)) return '00:00'; return Math.floor(s/60).toString().padStart(2,'0')+':'+Math.floor(s%60).toString().padStart(2,'0'); }
+
+// ===== Service Worker Registration =====
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').then(()=>console.log('Service Worker Registered')).catch(err=>console.error(err));
+}
+</script>
+</body>
+</html>
